@@ -12,11 +12,13 @@ class FC: # (abbv. flowcell) This is a collection of standard values for experim
         "colors":{
             "G1":"dodgerblue", "G2":"tab:orange", "R3":"crimson","R4":"darkorchid",
             "A":"dodgerblue","T":"tab:orange","G":"crimson","C":"darkorchid"
-        }
+        },
+        'expID':'',
+        'normalize':False
     }
     
     # pattern to split tile_id into groups
-    tile_pattern = re.compile(r"(?P<surf>[tb])(?P<lane>\d)(?P<pos>\d+)(?P<half>[AB])")
+    tile_pattern = re.compile(r"(?P<surf>[tb])(?P<lane>\d)(?P<pos>\d{2})(?P<half>[AB])")
 
 
 class BCQC:
@@ -45,6 +47,9 @@ class BCQC:
     int_col = {
         "G1":"A_int", "G2":"T_int", "R3":"G_int", "R4":"C_int"
     }
+################################################################################
+## UTILITY #####################################################################
+################################################################################
 
 def ATGC(char):
     '''Convert 1,2,3,4 or A,T,G,C into G1,G2,R3,R4 or G1,G2,R3,R4 into A,T,G,C''' 
@@ -63,6 +68,16 @@ def ATGC(char):
     atgc = dict(zip(keys,values)) 
     
     return atgc[char]
+
+
+def proc_to_cych(proc_num):
+    # Convert proc_######-qc.csv digits to cycle & channel
+
+    num = int(proc_num)
+    channels = ["G1","G2","R3","R4"]
+
+    return channels[num%4], num//4
+
 
 def order_magnitude(num):
     return math.floor(math.log(num,10))
@@ -91,26 +106,22 @@ def split_channel(df):
     
     return channel_dict
 
-def bcqc_direct_read(bcqc_dir):
-    
-    # Read files directly from original bcqc directory and output a csv file 
-    # with all bcqc data combined. Returns the created DataFrame
+################################################################################
+### METHODS TO COMPILE DATA ####################################################
+################################################################################
 
-    tf = re.search(r"(Read1)|(Index1)",bcqc_dir)
+def bcqc_read(bcqc_dir):
+    '''
+        Takes the original bcqc directory and compiles the separate 1_#_proc-int-bcqc.csv 
+        files and compiles them into a single .csv file from a DataFrame. Returns 
+        the created DataFrame.
+    '''
     
-    if not tf: 
-        print("Specify Read1/Index1")
-        return
+    tf = re.search(r"\\bcqc\\([A-Za-z0-9_-]*)",bcqc_dir)
     
-    read = tf.group(0)
-
-    new_path = f".\\bcqc_csv_{read}" 
-    isExist = os.path.exists(new_path)
-
-    if not isExist:
-        os.mkdir(new_path)
+    read = (lambda x: "_"+x.group(1) if x else '')(tf)
      
-    pathnames = glob.glob(bcqc_dir+f"\\*\\*.csv") # List all paths ending in .csv
+    pathnames = glob.glob(bcqc_dir+f"\\**\\*_proc-int-bcqc.csv",recursive=True) # List all paths ending in .csv
 
     pattern = re.compile(r"([tb]L\d{3}[AB]).*1_(\d{1,2})_proc-int-bcqc.csv$") # Get tile and cycle information from paths 
     tile_cycle = [pattern.search(i) for i in pathnames]
@@ -156,192 +167,18 @@ def bcqc_direct_read(bcqc_dir):
         all_data[name] = linetext[:,n]
 
     df = pd.DataFrame(all_data) # Convert to DataFrame and save as csv to working directory 
-    df.to_csv(f"bcqc-{read}.csv")
+    df.to_csv(f"bcqc{read}.csv")
 
     return df
-
-
-
-def bcqc_copy(bcqc_dir):
-
-    # Copy files from original bcqc directory 
-
-    tf = re.search(r"(Read1)|(Index1)",bcqc_dir)
-    
-    if not tf: 
-        print("Specify Read1/Index1")
-        return
-    
-    read = tf.group(0)
-
-    new_path = f".\\bcqc_csv_{read}" 
-    isExist = os.path.exists(new_path)
-
-    if not isExist:
-        os.mkdir(new_path)
-     
-    pathnames = glob.glob(bcqc_dir+f"\\*\\*.csv")
-
-    
-    pattern = re.compile(r"([tb]L\d{3}[AB]).*1_(\d{1,2})_proc-int-bcqc.csv$") # Get tile and cycle information from paths 
-    tile_cycle = [pattern.search(i) for i in pathnames]
-
-    # Create two arrays corresponding to all pathnames
-
-    tiles = np.array([i.group(1) for i in tile_cycle]) # array with tile names
-    cycles = np.array([i.group(2) for i in tile_cycle],dtype=np.int32) # array with cycle
-
-    # "cyc" is the list of indices which point to the desired pathnames
-    
-    cyc = []
-
-    for tile in np.unique(tiles): # build cyc and tile_col
-
-        tf = np.where(tiles == tile,cycles,0) # Find the largest number for every tile in pathnames
-        cyc.append(np.argmax(tf)) 
-
-    filenames = np.asarray(pathnames)[cyc] # grab desired pathnames
-    basenames = [re.search(r"([tb]L\d{3}[AB])",i).group(1) + "_" + os.path.basename(i) for i in filenames]
-
-    
-    for path,name in zip(filenames,basenames):
-        
-        shutil.copy(path,os.path.join(new_path,name))
-
-
-
-def bcqc_read(bcqc_csv,read=''):
-
-    filenames = glob.glob(f".\\{bcqc_csv}\\*.csv")
-
-    read_match = re.search(r"(Read1)|(Index1)",bcqc_csv)
-    
-    if not read and read_match:
-        read = read_match.group(1)
-
-    dtype = BCQC.dtype
-
-    tile_col = [] # will contain tile names for new array
-    linetext = [] # will contain all data read from original csv files
-    pattern = re.compile(r"([tb]L\d{3}[AB])_1_(\d+)_proc-int-bcqc.csv")
-
-    for fn in filenames:
-
-        
-        tile,cycles = pattern.match(os.path.basename(fn)).group(1,2)
-        tile_col += [tile for i in range(int(cycles)+1)]
-
-        linetext.append(np.loadtxt(fn,delimiter=',',skiprows=1))
-
-    linetext = np.concatenate(linetext)
-
-    all_data = np.zeros([len(tile_col),],dtype=dtype) # initialize final array
-    
-    all_data['tile_no'] = tile_col # populate tile_no column
-
-    for n, name in enumerate(dtype.names[1:]): # populate corresponding columns from original csv files
-        all_data[name] = linetext[:,n]
-
-    df = pd.DataFrame(all_data) # Convert to DataFrame and save as csv to working directory 
-    df.to_csv(f"bcqc-{read}.csv")
-
-    return df
-
-
-
-def bcqc_mean_rfl_bylane(df,expID='',normalize='',**kwargs):
- 
-    # User can restrict channels and lanes
-
-    options = lambda x: kwargs[x] if x in kwargs.keys() else FC.options[x]
-    channels = options("channels")
-    lanes = options("lanes")
-
-    c = FC.options['colors']
-
-
-    fig,ax = plt.subplots(1,len(lanes),figsize=(8,3))
-    plt.subplots_adjust(wspace=0.5,top=0.7,bottom=0.22,right=0.8)
-    ax[0].set_ylabel("RFL [-]")
-
-
-    for ch in channels:
-
-        for ln in lanes:
-
-            pattern = r"[tb]L{}\d+[AB]".format(ln)
-            mask1 = df.tile_no.str.contains(pattern) # all the tiles in the lane
-
-            one_lane = df[mask1]
-            
-            ydat = one_lane.groupby("cycle_no").mean()[BCQC.int_col[ch]]
-            xdat = ydat.index
-
-            if normalize:
-                ynorm = one_lane.groupby("cycle_no").mean()[BCQC.int_col[normalize]]
-            else:
-                ynorm = 1
-
-            ax[ln-1].plot(xdat,ydat/ynorm,label=ch,color=c[ch])    
-            ax[ln-1].set_title(f"Lane {ln}")
-            ax[ln-1].set_xlabel(f"Cycle #")
-
-    ax[-1].legend(bbox_to_anchor=[1.2,0.9])
-    title_tag = (lambda x: x+": " if x else '')(expID)
-    norm_tag = (lambda x: f"\n Normalized by {x} channel" if x else '')(normalize)
-    fig.suptitle(title_tag+"(bcqc) Average RFL across each lane"+norm_tag)
-    plt.show()
-    return fig,ax
-
-
-
-def proc_to_cych(proc_num):
-    # Convert proc_######-qc.csv digits to cycle & channel
-
-    num = int(proc_num)
-    channels = ["G1","G2","R3","R4"]
-
-    return channels[num%4], num//4
-
-
-
-def copy_proc(fbqc_dir): 
-
-    tf = re.search(r"\\([A-Za-z0-9]*)\\OLA$",fbqc_dir)
-    
-    read = tf.group(1)
-
-    new_path = f".\\fbqc_csv_{read}"
-
-    isExist = os.path.exists(new_path)
-    if not isExist: 
-        os.mkdir(new_path)
-
-    proc_dirs = glob.glob(fbqc_dir+"\\*\\qc\\*.csv")
-
-    pattern = re.compile(r".\\proc-([tb]L\d+[AB])\\qc\\proc_(\d{6})-qc\.csv$")
-    
-    files = [pattern.search(dirs) for dirs in proc_dirs if pattern.search(dirs)]
-    tiles = [file.group(1) for file in files]
-
-    for fn,file in enumerate(files):
-
-        path = file.string
-        newfolder = f"proc-{tiles[fn]}"
-        new_qc_dir = new_path+f"\\{newfolder}" # one down
-        isExist = os.path.exists(new_qc_dir)
-        
-        if not isExist:
-            os.mkdir(new_qc_dir)
-
-        shutil.copyfile(path,new_qc_dir+f"\\{os.path.basename(path)}")
-
 
 
 def fbqc_read(fbqc_dir):
-    # src_directory is a unix-like path of the "OLA" folder
+    '''
+        Takes the OLA directory of an experiment and compiles the separate proc_######-qc.csv
+        files into a single .csv. Returns the resulting DataFrame.
+    '''
 
-    read = re.search(r"(Index1)|(Read1)",fbqc_dir)
+    read = re.search(r"\\([A-Za-z0-9_-]*)\\OLA$",fbqc_dir)
     read = (lambda x: '-'+x.group(0) if x else '')(read)
 
     proc_dirs = glob.glob(fbqc_dir+"\\**\\*-qc.csv",recursive=True) 
@@ -412,33 +249,194 @@ def fbqc_read(fbqc_dir):
     return df
 
 
+def bcqc_copy(bcqc_dir):
 
-def fbqc_heatmap(df,expID,Y,tb,chosen_cycles='auto'): # updated old function
+    '''
+        Copy files from original bcqc directory to a new subdirectory within the
+        current working directory
+    '''
+
+    tf = re.search(r"\\bcqc\\([A-Za-z0-9_-]*)",bcqc_dir)
+    read = (lambda x: "_"+x.group(1) if x else '')(tf) 
+
+    new_path = f".\\bcqc_csv{read}" 
+    isExist = os.path.exists(new_path)
+
+    if not isExist:
+        os.mkdir(new_path)
+     
+    pathnames = glob.glob(bcqc_dir+f"\\*\\*.csv")
+
     
+    pattern = re.compile(r"([tb]L\d{3}[AB]).*1_(\d{1,2})_proc-int-bcqc.csv$") # Get tile and cycle information from paths 
+    tile_cycle = [pattern.search(i) for i in pathnames]
+
+    # Create two arrays corresponding to all pathnames
+
+    tiles = np.array([i.group(1) for i in tile_cycle]) # array with tile names
+    cycles = np.array([i.group(2) for i in tile_cycle],dtype=np.int32) # array with cycle
+
+    # "cyc" is the list of indices which point to the desired pathnames
+    
+    cyc = []
+
+    for tile in np.unique(tiles): # build cyc and tile_col
+
+        tf = np.where(tiles == tile,cycles,0) # Find the largest number for every tile in pathnames
+        cyc.append(np.argmax(tf)) 
+
+    filenames = np.asarray(pathnames)[cyc] # grab desired pathnames
+    basenames = [re.search(r"([tb]L\d{3}[AB])",i).group(1) + "_" + os.path.basename(i) for i in filenames]
+
+    
+    for path,name in zip(filenames,basenames):
+        
+        shutil.copy(path,os.path.join(new_path,name))
+
+
+def fbqc_copy(fbqc_dir): 
+    '''
+        Copy proc_######-qc.csv files from OLA directory into new tile subdirectories
+        created in the current working directory
+    '''
+    tf = re.search(r"\\([A-Za-z0-9_-]*)\\OLA$",fbqc_dir)
+    
+    read = (lambda x: '_'+x.group(1) if x else '')(tf)
+
+    new_path = f".\\fbqc_csv{read}"
+
+    isExist = os.path.exists(new_path)
+    if not isExist: 
+        os.mkdir(new_path)
+
+    proc_dirs = glob.glob(fbqc_dir+"\\*\\qc\\*.csv")
+
+    pattern = re.compile(r".\\proc-([tb]L\d+[AB])\\qc\\proc_(\d{6})-qc\.csv$")
+    
+    files = [pattern.search(dirs) for dirs in proc_dirs if pattern.search(dirs)]
+    tiles = [file.group(1) for file in files]
+
+    for fn,file in enumerate(files):
+
+        path = file.string
+        newfolder = f"proc-{tiles[fn]}"
+        new_qc_dir = new_path+f"\\{newfolder}" # one down
+        isExist = os.path.exists(new_qc_dir)
+        
+        if not isExist:
+            os.mkdir(new_qc_dir)
+
+        shutil.copyfile(path,new_qc_dir+f"\\{os.path.basename(path)}")
+
+
+################################################################################
+## GRAPHING FUNCTIONS ##########################################################
+################################################################################
+
+def bcqc_mean_rfl_bylane(df,**kwargs):
+    '''
+        Accepts a Pandas DataFrame of bcqc data (contains A_int,T_ int, etc.) and outputs 
+        graphs of relative_intensity_mean averaged across the lane vs. cycle, producing 
+        one graph for each lane.
+
+        Possible keyword arguments:
+            expID - name of experiment
+            normalize - one of 'G1','G2','R3','R4' or False
+            colors - colors to associate with each of the four channels
+            channels - list of channels to include, default ['G1','G2','R3','R4']
+            lanes - list of lanes to include, default [1,2,3,4]
+        
+    '''
+
+    options = FC.options.copy() # insert keyword options from FC class 
+    options.update(kwargs)
+    
+    channels = options["channels"] # assign names for brevity
+    lanes = options["lanes"]
+    c = options["colors"]
+
+
+    fig,ax = plt.subplots(1,len(lanes),figsize=(8,3))
+    plt.subplots_adjust(wspace=0.5,top=0.7,bottom=0.22,right=0.8)
+    ax[0].set_ylabel("RFL [-]")
+
+
+    for ch in channels:
+
+        for ln in lanes:
+
+            # match first digit to get mask corresponding to tile in a specific lane
+            pattern = r"[tb]L{}\d+[AB]".format(ln)
+            mask1 = df.tile_no.str.contains(pattern) 
+
+            one_lane = df[mask1]
+            
+            ydat = one_lane.groupby("cycle_no").mean()[BCQC.int_col[ch]]
+            xdat = ydat.index
+
+            if options['normalize']: # normalize by specified channel
+                ynorm = one_lane.groupby("cycle_no").mean()[BCQC.int_col[options['normalize']]]
+            else:
+                ynorm = 1
+
+            ax[ln-1].plot(xdat,ydat/ynorm,label=ch,color=c[ch])    
+            ax[ln-1].set_title(f"Lane {ln}")
+            ax[ln-1].set_xlabel(f"Cycle #")
+
+    ax[-1].legend(bbox_to_anchor=[1.2,0.9])
+    title_tag = (lambda x: x+": " if x else '')(options['expID'])
+    norm_tag = (lambda x: f"\n Normalized by {x} channel" if x else '')(options['normalize'])
+    fig.suptitle(title_tag+"(bcqc) Average RFL across each lane"+norm_tag)
+    plt.show()
+
+    return fig,ax
+
+
+def fbqc_heatmap(df,Y,chosen_cycles='auto',**kwargs): 
+    
+    '''
+        Given a Pandas DataFrame of fbqc data (df) and the name of a qc value (Y), 
+        create a grid of heatmaps organized by channel and chosen cycles. Plots 
+        all lanes included in the dataset and cannot be changed.
+
+        Possible keyword arguments:
+            expID - name of experiment
+            normalize - one of 'G1','G2','R3','R4' or False
+            colors - colors to associate with each of the four channels
+            channels - list of channels to include, default ['G1','G2','R3','R4']
+            surface - the top or bottom surface of the FC 't' or 'b', default 't'            
+    '''
+
     def lane_box(lanes):
         text = '\n'.join(lanes)
         plt.figtext(0.88,0.5,text,bbox=dict(facecolor="none",edgecolor="gray",pad=6))
 
-    
-    if chosen_cycles == 'auto':
+    options = FC.options.copy()    # load in defaults from FC class
+    options.update({'surface':'t'}) # add new "surface" keyword
+    options.update(kwargs)  
+     
+    tb = options['surface']     # assign names for brevity
+    channels = options['channels']
+
+    if type(chosen_cycles) == str and chosen_cycles == 'auto': # by default graphs 8 cycles between the first and last cycle
         max_cycle = df.cycle_no.max()
-        chosen_cycles = np.linspace(0,max_cycle,8).astype(int)
+        min_cycle = df.cycle_no.min()
+        chosen_cycles = np.linspace(min_cycle,max_cycle,8).astype(int)
     
     nrows = len(chosen_cycles)
-    ncols = df["channel"].nunique()
+    ncols = len(channels)
     
-    tb_label = {"t":"top", "b":"bottom"}
+    tb_label = {"t":"top", "b":"bottom"} 
     mask_tb = df["tile_no"].str.contains(tb)
     df = df.loc[mask_tb]
-
-    channels = df["channel"].unique()
-    lane_pattern = tb+r"L(\d)(\d{2})[A|B]"
+    
+    lane_pattern = tb+r"L(\d)(\d{2})[AB]"
     check_lane = list(
         map(lambda x: re.match(lane_pattern,x),df["tile_no"].to_numpy())
     )
     
-    group1 = [int(i.group(1)) for i in check_lane if i]
-    group2 = [int(i.group(2)) for i in check_lane if i]
+    group1 = [int(i.group(1)) for i in check_lane if i] # lane numbers
+    group2 = [int(i.group(2)) for i in check_lane if i] # position in lane
     lanes = np.unique(group1)
     tpos = max(group2)
 
@@ -453,18 +451,18 @@ def fbqc_heatmap(df,expID,Y,tb,chosen_cycles='auto'): # updated old function
     qc_dict = dict()
 
     for c, ch in enumerate(channels):
-        imin, imax = [],[]
 
-        
+        imin, imax = [],[]        
         
         ax[0,c].set_title(ch)
         qc_dict[ch] = []
 
         for y, cy in enumerate(chosen_cycles):
+
             qry = "channel == '{}' & cycle_no == {}".format(ch,cy)
             df_qry = df.query(qry)
             im_array = np.empty([2*len(lanes),tpos],dtype=float)
-            ax[y,0].set_ylabel(f"Inc {cy+1}",rotation='horizontal',labelpad=18,fontsize=8)
+            ax[y,0].set_ylabel(f"Inc {cy}",rotation='horizontal',labelpad=18,fontsize=8)
             
             for t,ln in enumerate(tile_order):
                 pattern = f"{tb}L{ln[0]}"+r"\d{2}"+f"{ln[1]}"
@@ -520,19 +518,45 @@ def fbqc_heatmap(df,expID,Y,tb,chosen_cycles='auto'): # updated old function
         )
 
         cb2.ax.tick_params(labelsize=6)
-
-    fig.suptitle(f"{expID}: {change_qc_label(Y)} ({tb_label[tb]})")
+    title_tag = (lambda x: x+': ' if x else '')(options['expID'])
+    fig.suptitle(f"{title_tag}{change_qc_label(Y)} ({tb_label[tb]})")
     lane_box(tile_order)
         
     return fig, ax, qc_dict
 
 
-def plot_lines(df,expID,Y,
-    lanes = [1,2,3,4],
-    surface = 't',
-    tiles = ["02","08","15","21"],
-    half = ['A','B']
-): 
+def fbqc_plot_lines(df,Y,**kwargs): 
+    '''
+        Given a Pandas DataFrame of fbqc data (df) and the name of a qc value (Y), 
+        create graphs which plot Y vs. cycle for individual tiles. Each graph is 
+        organized in a grid by lane number and channel.
+
+        Possible keyword arguments:
+            expID - name of experiment
+            normalize - one of 'G1','G2','R3','R4' or False
+            colors - colors to associate with each of the four channels
+            channels - list of channels to include, default ['G1','G2','R3','R4']
+            lanes - list of lanes to include, default [1,2,3,4]
+            surface - the top or bottom surface of the FC 't' or 'b', default 't'
+            tiles - takes up to four positions along the lane 
+            half - include A or B half, or both
+    '''
+    
+    options = FC.options.copy() 
+    options.update(
+        {
+            'surface':'t',
+            'tiles':["02","08","15","21"],
+            'half':['A','B']
+        }
+    )
+
+    options.update(kwargs)
+    
+    surface = options['surface'] # assign new names for brevity
+    tiles = options['tiles']
+    half = options['half']
+    lanes = options['lanes']
 
     channel_dict = split_channel(df)
     channel_keys = channel_dict.keys()
@@ -548,6 +572,7 @@ def plot_lines(df,expID,Y,
         
     
     for c,ch in enumerate(channel_keys):
+
         lane_k = 0
         df_ch = channel_dict[ch]
         ylim = (np.min(df_ch[Y]),np.max(df_ch[Y]))
@@ -574,9 +599,11 @@ def plot_lines(df,expID,Y,
             tile_labels = functools.reduce(operator.iconcat,tile_labels,[])
 
             for ti,tlabel in enumerate(tile_labels):
+
                 single_tile = df_ch["tile_no"] == tlabel
                 xdat = df_ch.loc[single_tile]["cycle_no"]
                 ydat = df_ch.loc[single_tile][Y]
+                
                 h = ax[lane_k,c].plot(
                     xdat,
                     ydat,
@@ -584,6 +611,7 @@ def plot_lines(df,expID,Y,
                     color=colors[ti%len(tiles)],
                     # linewidth=2
                 )[0]
+
                 if c == 0 and ln == lanes[0]:
                     handle.append(h)
                     label.append(
@@ -591,41 +619,51 @@ def plot_lines(df,expID,Y,
                     )
             lane_k += 1
         
-
+        title_tag = (lambda x: x+': ' if x else '')(options['expID'])
         fig.legend(handle,label,ncol=len(half),bbox_to_anchor=[0.9,1],title="Tile ID")
-        fig.suptitle(f"{expID}: {change_qc_label(Y)}",fontsize=16,x=0.35,y=0.93,fontweight="bold")
+        fig.suptitle(f"{title_tag}{change_qc_label(Y)}",fontsize=16,x=0.35,y=0.93,fontweight="bold")
         
     return fig, ax
 
-def qc_mean_lane(df,Y,
-    lanes=[1,2,3,4],
-    normalize_ch=False # either false or a channel or base
-):
-    
-    if normalize_ch in ['G1','G2','R3','R4']: #fbqc has bases listed for some reason
-        normalize_ch = ATGC(normalize_ch)
-    
-    c = FC.options["colors"]        
-    channels = df.channel.unique()
+def qc_mean_lane(df,Y,**kwargs):
 
-    fig,ax = plt.subplots(1,len(lanes),figsize=(8,2))
+    '''
+        Takes a Pandas DataFrame of fbqc data and outputs graphs of 
+        relative_intensity_mean averaged across the lane, producing one graph
+        for each lane.
+
+        Possible keyword arguments:
+            expID - name of experiment
+            normalize - one of 'G1','G2','R3','R4' or False, default False
+            colors - colors to associate with each of the four channels
+            channels - list of channels to include, default ['G1','G2','R3','R4']
+            lanes - list of lanes to include, default [1,2,3,4]
+
+    '''
+
+    options = FC.options.copy()
+    options.update(kwargs)
+
+    c = options['colors'] # assign name for brevity
+            
+    fig,ax = plt.subplots(1,len(options['lanes']),figsize=(8,2))
     plt.subplots_adjust(wspace=0.5,top=0.7,bottom=0.22,right=0.8)
     
 
-    for ch in channels:
+    for ch in options['channels']:
 
-        for ln in lanes:
+        for ln in options['lanes']:
 
             pattern = r"[tb]L{}\d+[AB]".format(ln)
             mask1 = df.tile_no.str.contains(pattern)
             mask2 = df.channel == ch
-            mask3 = df.channel == normalize_ch
+            mask3 = df.channel == options['normalize']
 
             one_lane = df[mask1*mask2]
             norm = df[mask1*mask3]
             
             ydat = one_lane.groupby("cycle_no").mean()[Y]
-            ynorm = (lambda x: norm.groupby("cycle_no").mean()[Y] if x else 1)(normalize_ch)
+            ynorm = (lambda x: norm.groupby("cycle_no").mean()[Y] if x else 1)(options['normalize'])
             
             xdat = ydat.index
 
@@ -636,7 +674,7 @@ def qc_mean_lane(df,Y,
     ax[-1].legend(bbox_to_anchor=[1.2,0.9])
     ax[0].set_ylabel(f"{change_qc_label(Y)} [-]")
 
-    norm_tag = lambda x: f", normalized by {ATGC(x)}" if x else ''
-    fig.suptitle(f"(fbqc) Average {change_qc_label(Y)} across each lane"+norm_tag(normalize_ch))
+    norm_tag = (lambda x: f", normalized by {ATGC(x)}" if x else '')(options['normalize'])
+    fig.suptitle(f"(fbqc) Average {change_qc_label(Y)} across each lane"+norm_tag)
 
     return fig, ax
