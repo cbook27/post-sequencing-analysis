@@ -358,7 +358,11 @@ def bcqc_mean_rfl_bylane(df,**kwargs):
 
     fig,ax = plt.subplots(1,len(lanes),figsize=(8,3))
     plt.subplots_adjust(wspace=0.5,top=0.7,bottom=0.22,right=0.8)
+    if len(lanes) == 1:
+        ax = np.expand_dims(ax,axis=0)
+
     ax[0].set_ylabel("RFL [-]")
+
 
 
     for ch in channels:
@@ -446,6 +450,7 @@ def fbqc_heatmap(df,Y,chosen_cycles='auto',**kwargs):
     
     fig, ax = plt.subplots(nrows,ncols)    
     fig.subplots_adjust(left=0.15,right=0.85,top=1)
+
     # fig.subplots_adjust(top=0.5,hspace=0.1)
 
     qc_dict = dict()
@@ -563,7 +568,10 @@ def fbqc_plot_lines(df,Y,**kwargs):
 
     nrows, ncols = len(lanes), df["channel"].nunique()
     fig, ax = plt.subplots(nrows,ncols,figsize=(12,3+1.5*nrows))
+    
+    
     fig.subplots_adjust(wspace=0.3,top=0.60+0.05*nrows,hspace=0.35)
+
     colors = ['tab:blue','tab:orange','tab:green','crimson']        
     handle,label = [],[]
     
@@ -625,7 +633,7 @@ def fbqc_plot_lines(df,Y,**kwargs):
         
     return fig, ax
 
-def qc_mean_lane(df,Y,**kwargs):
+def fbqc_mean_lane(df,Y,**kwargs):
 
     '''
         Takes a Pandas DataFrame of fbqc data and outputs graphs of 
@@ -649,6 +657,8 @@ def qc_mean_lane(df,Y,**kwargs):
     fig,ax = plt.subplots(1,len(options['lanes']),figsize=(8,2))
     plt.subplots_adjust(wspace=0.5,top=0.7,bottom=0.22,right=0.8)
     
+    if len(options['lanes']) == 1:
+        ax = np.expand_dims(ax,axis=0)
 
     for ch in options['channels']:
 
