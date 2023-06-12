@@ -1,8 +1,11 @@
 import numpy as np, pandas as pd
+import numpy.ma as ma
 import os, re, glob, shutil
 import functools, operator
 import math
 from matplotlib import pyplot as plt
+import matplotlib
+
 
 
 class FC: # (abbv. flowcell) This is a collection of standard values for experiments 
@@ -18,7 +21,7 @@ class FC: # (abbv. flowcell) This is a collection of standard values for experim
     }
     
     # pattern to split tile_id into groups
-    tile_pattern = re.compile(r"(?P<surf>[tb])(?P<lane>\d)(?P<pos>\d{2})(?P<half>[AB])")
+    tile_pattern = re.compile(r"(?P<surf>[tb])L(?P<lane>\d)(?P<pos>\d{2})(?P<half>[A-Z])")
 
 
 class BCQC:
@@ -117,13 +120,13 @@ def bcqc_read(bcqc_dir):
         the created DataFrame.
     '''
     
-    tf = re.search(r"\\bcqc\\([A-Za-z0-9_-]*)",bcqc_dir)
+    tf = re.search(r"/bcqc/([A-Za-z0-9_-]*)",bcqc_dir)
     
     read = (lambda x: "_"+x.group(1) if x else '')(tf)
      
-    pathnames = glob.glob(bcqc_dir+f"\\**\\*_proc-int-bcqc.csv",recursive=True) # List all paths ending in .csv
+    pathnames = glob.glob(bcqc_dir+f"/**/*_proc-int-bcqc.csv",recursive=True) # List all paths ending in .csv
 
-    pattern = re.compile(r"([tb]L\d{3}[AB]).*1_(\d{1,2})_proc-int-bcqc.csv$") # Get tile and cycle information from paths 
+    pattern = re.compile(r"([tb]L\d{3}[A-Z]).*1_(\d{1,2})_proc-int-bcqc.csv$") # Get tile and cycle information from paths 
     tile_cycle = [pattern.search(i) for i in pathnames]
 
     # Create two arrays corresponding to all pathnames
@@ -178,12 +181,12 @@ def fbqc_read(fbqc_dir):
         files into a single .csv. Returns the resulting DataFrame.
     '''
 
-    read = re.search(r"\\([A-Za-z0-9_-]*)\\OLA$",fbqc_dir)
+    read = re.search(r"/([A-Za-z0-9_-]*)/OLA$",fbqc_dir)
     read = (lambda x: '-'+x.group(0) if x else '')(read)
 
-    proc_dirs = glob.glob(fbqc_dir+"\\**\\*-qc.csv",recursive=True) 
+    proc_dirs = glob.glob(fbqc_dir+"/**/*-qc.csv",recursive=True) 
     
-    ola_pattern = re.compile(r"proc-([tb]L\d+[AB]).*\\proc_(\d{6})-qc\.csv$")
+    ola_pattern = re.compile(r"proc-([tb]L\d+[A-Z]).*/proc_(\d{6})-qc\.csv$")
     files = [ola_pattern.search(dirs) for dirs in proc_dirs if ola_pattern.search(dirs)]
     nums = [x.group(2) for x in files]
     tiles = [x.group(1) for x in files]
@@ -256,19 +259,19 @@ def bcqc_copy(bcqc_dir):
         current working directory
     '''
 
-    tf = re.search(r"\\bcqc\\([A-Za-z0-9_-]*)",bcqc_dir)
+    tf = re.search(r"/bcqc/([A-Za-z0-9_-]*)",bcqc_dir)
     read = (lambda x: "_"+x.group(1) if x else '')(tf) 
 
-    new_path = f".\\bcqc_csv{read}" 
+    new_path = f"./bcqc_csv{read}" 
     isExist = os.path.exists(new_path)
 
     if not isExist:
         os.mkdir(new_path)
      
-    pathnames = glob.glob(bcqc_dir+f"\\*\\*.csv")
+    pathnames = glob.glob(bcqc_dir+f"/*/*.csv")
 
     
-    pattern = re.compile(r"([tb]L\d{3}[AB]).*1_(\d{1,2})_proc-int-bcqc.csv$") # Get tile and cycle information from paths 
+    pattern = re.compile(r"([tb]L\d{3}[A-Z]).*1_(\d{1,2})_proc-int-bcqc.csv$") # Get tile and cycle information from paths 
     tile_cycle = [pattern.search(i) for i in pathnames]
 
     # Create two arrays corresponding to all pathnames
@@ -286,7 +289,7 @@ def bcqc_copy(bcqc_dir):
         cyc.append(np.argmax(tf)) 
 
     filenames = np.asarray(pathnames)[cyc] # grab desired pathnames
-    basenames = [re.search(r"([tb]L\d{3}[AB])",i).group(1) + "_" + os.path.basename(i) for i in filenames]
+    basenames = [re.search(r"([tb]L\d{3}[A-Z])",i).group(1) + "_" + os.path.basename(i) for i in filenames]
 
     
     for path,name in zip(filenames,basenames):
@@ -299,19 +302,19 @@ def fbqc_copy(fbqc_dir):
         Copy proc_######-qc.csv files from OLA directory into new tile subdirectories
         created in the current working directory
     '''
-    tf = re.search(r"\\([A-Za-z0-9_-]*)\\OLA$",fbqc_dir)
+    tf = re.search(r"/([A-Za-z0-9_-]*)/OLA$",fbqc_dir)
     
     read = (lambda x: '_'+x.group(1) if x else '')(tf)
 
-    new_path = f".\\fbqc_csv{read}"
+    new_path = f"./fbqc_csv{read}"
 
     isExist = os.path.exists(new_path)
     if not isExist: 
         os.mkdir(new_path)
 
-    proc_dirs = glob.glob(fbqc_dir+"\\*\\qc\\*.csv")
+    proc_dirs = glob.glob(fbqc_dir+"/*/qc/*.csv")
 
-    pattern = re.compile(r".\\proc-([tb]L\d+[AB])\\qc\\proc_(\d{6})-qc\.csv$")
+    pattern = re.compile(r"./proc-([tb]L\d+[A-Z])/qc/proc_(\d{6})-qc\.csv$")
     
     files = [pattern.search(dirs) for dirs in proc_dirs if pattern.search(dirs)]
     tiles = [file.group(1) for file in files]
@@ -320,13 +323,13 @@ def fbqc_copy(fbqc_dir):
 
         path = file.string
         newfolder = f"proc-{tiles[fn]}"
-        new_qc_dir = new_path+f"\\{newfolder}" # one down
+        new_qc_dir = new_path+f"/{newfolder}" # one down
         isExist = os.path.exists(new_qc_dir)
         
         if not isExist:
             os.mkdir(new_qc_dir)
 
-        shutil.copyfile(path,new_qc_dir+f"\\{os.path.basename(path)}")
+        shutil.copyfile(path,new_qc_dir+f"/{os.path.basename(path)}")
 
 
 ################################################################################
@@ -370,7 +373,7 @@ def bcqc_mean_rfl_bylane(df,**kwargs):
         for ln in lanes:
 
             # match first digit to get mask corresponding to tile in a specific lane
-            pattern = r"[tb]L{}\d+[AB]".format(ln)
+            pattern = r"[tb]L{}\d+[A-Z]".format(ln)
             mask1 = df.tile_no.str.contains(pattern) 
 
             one_lane = df[mask1]
@@ -401,23 +404,23 @@ def fbqc_heatmap(df,Y,chosen_cycles='auto',**kwargs):
     '''
         Given a Pandas DataFrame of fbqc data (df) and the name of a qc value (Y), 
         create a grid of heatmaps organized by channel and chosen cycles. Plots 
-        all lanes included in the dataset and cannot be changed.
+        all lanes & their halves included in the dataset and cannot be changed.
 
         Possible keyword arguments:
             expID - name of experiment
-            normalize - one of 'G1','G2','R3','R4' or False
             colors - colors to associate with each of the four channels
             channels - list of channels to include, default ['G1','G2','R3','R4']
             surface - the top or bottom surface of the FC 't' or 'b', default 't'            
     '''
 
     def lane_box(lanes):
+        # Print a text box that IDs each row of the heatmap to a location on the FC
         text = '\n'.join(lanes)
         plt.figtext(0.88,0.5,text,bbox=dict(facecolor="none",edgecolor="gray",pad=6))
 
     options = FC.options.copy()    # load in defaults from FC class
     options.update({'surface':'t'}) # add new "surface" keyword
-    options.update(kwargs)  
+    options.update(kwargs)  # update based on user input
      
     tb = options['surface']     # assign names for brevity
     channels = options['channels']
@@ -426,6 +429,9 @@ def fbqc_heatmap(df,Y,chosen_cycles='auto',**kwargs):
         max_cycle = df.cycle_no.max()
         min_cycle = df.cycle_no.min()
         chosen_cycles = np.linspace(min_cycle,max_cycle,8).astype(int)
+
+    elif type(chosen_cycles) == str and chosen_cycles != 'auto':
+        raise Exception("'chosen_cycles' keyword must be an iterable of integers or 'auto'")
     
     nrows = len(chosen_cycles)
     ncols = len(channels)
@@ -434,22 +440,37 @@ def fbqc_heatmap(df,Y,chosen_cycles='auto',**kwargs):
     mask_tb = df["tile_no"].str.contains(tb)
     df = df.loc[mask_tb]
     
-    lane_pattern = tb+r"L(\d)(\d{2})[AB]"
-    check_lane = list(
-        map(lambda x: re.match(lane_pattern,x),df["tile_no"].to_numpy())
-    )
+    lane_pattern = tb+r"L(\d)(\d{2})([A-Z])"
+    lane_match = df.tile_no.str.extract(lane_pattern)
+
     
-    group1 = [int(i.group(1)) for i in check_lane if i] # lane numbers
-    group2 = [int(i.group(2)) for i in check_lane if i] # position in lane
-    lanes = np.unique(group1)
-    tpos = max(group2)
+    lanes = lane_match[0].astype(np.int32).unique()
+    tpos = lane_match[1].astype(np.int32).max()
+    tset = set(lane_match[1])
+
+    half = lane_match[2].astype(str).unique()
+    half.sort()
+    half = np.flip(half)
 
     tile_order = []
+    lanes.sort()
+    lanes = np.flip(lanes)
+
     for i in lanes:
-        tile_order += [f"{len(lanes)-i+1}B",f"{len(lanes)-i+1}A"]
+        tile_order += [f"{i}{j}" for j in half]
     
-    fig, ax = plt.subplots(nrows,ncols)    
+    
+
+    fig, ax = plt.subplots(nrows,ncols)
+
+    if nrows == 1:
+        ax = np.expand_dims(ax,axis=0)
+    if ncols == 1:
+        ax = np.expand_dims(ax,axis=1)
+       
     fig.subplots_adjust(left=0.15,right=0.85,top=1)
+    cmap = matplotlib.cm.get_cmap('jet').copy()
+    cmap.set_bad('white') # color tiles with missing data white
 
     # fig.subplots_adjust(top=0.5,hspace=0.1)
 
@@ -464,42 +485,64 @@ def fbqc_heatmap(df,Y,chosen_cycles='auto',**kwargs):
 
         for y, cy in enumerate(chosen_cycles):
 
-            qry = "channel == '{}' & cycle_no == {}".format(ch,cy)
+            qry = "channel == '{}' & cycle_no == {}".format(ch,cy)    
             df_qry = df.query(qry)
-            im_array = np.empty([2*len(lanes),tpos],dtype=float)
+            tile_df = df_qry.tile_no.str.extract(FC.tile_pattern)
+
+            # This breaks if a tile in the middle is completely missing from the dataset
+            im_array = np.empty([len(half)*len(lanes),tpos],dtype=float) 
             ax[y,0].set_ylabel(f"Inc {cy}",rotation='horizontal',labelpad=18,fontsize=8)
             
             for t,ln in enumerate(tile_order):
-                pattern = f"{tb}L{ln[0]}"+r"\d{2}"+f"{ln[1]}"
+                
+                tf1 = tile_df.surf == tb
+                tf2 = tile_df.lane == ln[0]
+                tf3 = tile_df.half == ln[1]
 
-                tf = df_qry["tile_no"].str.contains(pattern)
+                tf = tf1*tf2*tf3 
 
-                if not np.any(tf): # test 
-                    print(pattern,ch,qry)
+                if not np.any(tf): # if empty, print tile, channel, and cycle 
+                    print(tb+"L"+ln[0]+"##"+ln[1],qry)
+                
+                zdat = df_qry.loc[tf].sort_values('tile_no')[Y].to_numpy() # Sort values just in case tiles are out of order
 
-                im_array[t,:] = df_qry[Y].loc[tf]
+                if len(zdat) != tpos:
+                    # include placeholder values for missing tile data 
+                    zset = set(tile_df.pos[tf])
+                    disjoint = tset.difference(zset)
+                    disjoint = list(disjoint)
+                    disjoint.sort()
+
+                    for dis in disjoint:
+                        index = int(dis)-1
+                        zdat = np.insert(zdat,index,-1)
+
+
+                im_array[t,:] = zdat
                 
                 
                 ax[y,c].set_yticks([])
                 if cy != chosen_cycles[-1]:
                     ax[y,c].set_xticks([])
-            
+                
+            im_array = np.ma.array(im_array,mask=im_array==-1)
             qc_dict[ch].append(im_array)
             imax.append(np.max(im_array))
             imin.append(np.min(im_array))
 
-        ax[y,c].set_xticks([0]+list(np.arange(3,tpos,4)))
-        ax[y,c].set_xticklabels([1]+list(np.arange(3,tpos,4)+1),fontsize=8)
+        xticks = np.linspace(0,tpos,6,dtype=np.int32)
+        ax[y,c].set_xticks(xticks)
+        ax[y,c].set_xticklabels(xticks+1,fontsize=8)
         
         ch_min, ch_max = np.min(imin), np.max(imax)
         qc_dict[ch] = np.array(qc_dict[ch])
         
         for j in np.arange(len(chosen_cycles)):
             im_scale = ax[j,c].imshow(
-                qc_dict[ch][j],
+                np.ma.array(qc_dict[ch][j],mask=qc_dict[ch][j]==-1),
                 vmin = ch_min,
                 vmax = ch_max,
-                cmap = 'jet',
+                cmap = cmap,
                 # extent = [0,tpos-1,0,2*len(lanes)-1],
                 aspect = 'equal',
                 interpolation = 'nearest'
@@ -543,16 +586,18 @@ def fbqc_plot_lines(df,Y,**kwargs):
             channels - list of channels to include, default ['G1','G2','R3','R4']
             lanes - list of lanes to include, default [1,2,3,4]
             surface - the top or bottom surface of the FC 't' or 'b', default 't'
-            tiles - takes up to four positions along the lane 
-            half - include A or B half, or both
+            tiles - takes up to six positions along the lane 
+            half - include A, B, C, etc. half, or all
     '''
     
     options = FC.options.copy() 
+    match_half = df.tile_no.str.extract(r".*([A-Z]{1})$")
+
     options.update(
         {
             'surface':'t',
             'tiles':["02","08","15","21"],
-            'half':['A','B']
+            'half':list(match_half[0].unique())
         }
     )
 
@@ -571,8 +616,7 @@ def fbqc_plot_lines(df,Y,**kwargs):
     
     
     fig.subplots_adjust(wspace=0.3,top=0.60+0.05*nrows,hspace=0.35)
-
-    colors = ['tab:blue','tab:orange','tab:green','crimson']        
+    colors = ['tab:blue','tab:orange','tab:green','crimson','mediumorchid','mediumturquoise']        
     handle,label = [],[]
     
     if len(ax.shape) == 1:
@@ -615,7 +659,7 @@ def fbqc_plot_lines(df,Y,**kwargs):
                 h = ax[lane_k,c].plot(
                     xdat,
                     ydat,
-                    linestyle=['-','--'][ti//len(tiles)],
+                    linestyle=['-','--',':','-.'][ti//len(tiles)],
                     color=colors[ti%len(tiles)],
                     # linewidth=2
                 )[0]
@@ -688,3 +732,71 @@ def fbqc_mean_lane(df,Y,**kwargs):
     fig.suptitle(f"(fbqc) Average {change_qc_label(Y)} across each lane"+norm_tag)
 
     return fig, ax
+
+def fbqc_by_tile(df,Y,chosen_tiles=['03A','09B','17A','20B'],**kwargs):
+    # Plot by chosen tiles, plot values from these positions for each lane
+    # Input the last 3 characters from the tile ID
+
+    options = FC.options.copy()
+    options.update({'surface':'t'}) 
+    options.update(kwargs)
+
+    ncols = len(chosen_tiles)
+    
+    lanes = df.tile_no.str.extract(r"[tb]L(\d)\d{2}[A-Z]$")
+    lanes = lanes[0].astype(np.int32).unique()
+    nrows = len(lanes)
+
+    fig,ax = plt.subplots(nrows,ncols,figsize=(15,2+nrows*2))
+    ax = np.asarray(ax)
+    if len(ax.shape) == 1:
+        ax = np.expand_dims(ax,axis=0)
+    
+    tb = options['surface']
+    tb_tag = {'t':"top",'b':"bottom"}
+
+    c = options['colors']
+
+    chosen_tiles = [tb+'L{}'+t for t in chosen_tiles]
+
+    fig.subplots_adjust(wspace=0.3,hspace=0.5,top=0.80)
+    title_tag = (lambda x: x['expID']+': ' if x['expID'] else '')(options)
+    norm_tag = (lambda x: f", normalized by {x['normalize']} channel" if x['normalize'] else '')(options)
+
+    fig.suptitle(
+        f"{title_tag}{change_qc_label(Y)} from select tiles ({tb_tag[tb]}){norm_tag}",
+        fontsize=18, fontweight="bold", x=0.2, y=0.96, horizontalalignment="left"
+    )
+
+    for lane in lanes:
+
+        for x,axis in enumerate(ax[lane-1]):
+
+            picktiles = chosen_tiles[x].format(lane)
+
+            for ch in options['channels']:
+
+                mask1 = (f"tile_no == '{picktiles}' & channel == '{ch}'")
+                df1 = df.query(mask1)
+
+                if options['normalize']:
+
+                    maskn = (f"tile_no == '{picktiles}' & channel == '{options['normalize']}'")
+                    ynorm = (lambda x: df.query(maskn)[Y] if x['normalize'] else 1)(options)
+
+                axis.plot(df1.cycle_no, df1[Y]/ynorm.to_numpy(), linestyle='-', color=c[ch], label=ch)
+                axis.set_xticks(np.linspace(df1.cycle_no.min(),df1.cycle_no.max(),num=5).astype(np.int32))
+                
+                axis.set_title(picktiles,pad=8)
+
+                if lane == lanes[-1]:
+                    axis.set_xlabel("Cycle #")
+
+                if lane == lanes[0] and axis == ax[0,-1]:
+                    axis.legend(ncol=len(options['channels']),bbox_to_anchor=(1.1,1.6))
+                
+                if axis == ax[lane-1,0]:
+                    axis.set_ylabel(f"Lane {lane} {change_qc_label(Y)}",fontsize=14,labelpad=10)
+    
+    ax[0][-1].legend(bbox_to_anchor=[1.2,0.9])
+
