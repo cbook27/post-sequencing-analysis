@@ -1,6 +1,5 @@
 
 *.csv
 *.png
-*.tsv
+*.png
 post_sequencing_analysis_20230606-1.py
-post_sequencing_analysis_20230612.py
