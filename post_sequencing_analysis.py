@@ -767,6 +767,7 @@ def fbqc_by_tile(df,Y,chosen_tiles=['03A','09B','17A','20B'],**kwargs):
         f"{title_tag}{change_qc_label(Y)} from select tiles ({tb_tag[tb]}){norm_tag}",
         fontsize=18, fontweight="bold", x=0.2, y=0.96, horizontalalignment="left"
     )
+ 
 
     for lane in lanes:
 
@@ -783,6 +784,10 @@ def fbqc_by_tile(df,Y,chosen_tiles=['03A','09B','17A','20B'],**kwargs):
 
                     maskn = (f"tile_no == '{picktiles}' & channel == '{options['normalize']}'")
                     ynorm = (lambda x: df.query(maskn)[Y] if x['normalize'] else 1)(options)
+                
+                else: 
+                    ynorm = 1
+
 
                 axis.plot(df1.cycle_no, df1[Y]/ynorm.to_numpy(), linestyle='-', color=c[ch], label=ch)
                 axis.set_xticks(np.linspace(df1.cycle_no.min(),df1.cycle_no.max(),num=5).astype(np.int32))
@@ -799,4 +804,5 @@ def fbqc_by_tile(df,Y,chosen_tiles=['03A','09B','17A','20B'],**kwargs):
                     axis.set_ylabel(f"Lane {lane} {change_qc_label(Y)}",fontsize=14,labelpad=10)
     
     ax[0][-1].legend(bbox_to_anchor=[1.2,0.9])
-
+    
+    return fig, ax
