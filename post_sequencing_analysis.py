@@ -581,7 +581,6 @@ def fbqc_plot_lines(df,Y,**kwargs):
 
         Possible keyword arguments:
             expID - name of experiment
-            normalize - one of 'G1','G2','R3','R4' or False
             colors - colors to associate with each of the four channels
             channels - list of channels to include, default ['G1','G2','R3','R4']
             lanes - list of lanes to include, default [1,2,3,4]
@@ -728,7 +727,7 @@ def fbqc_mean_lane(df,Y,**kwargs):
     ax[-1].legend(bbox_to_anchor=[1.2,0.9])
     ax[0].set_ylabel(f"{change_qc_label(Y)} [-]")
 
-    norm_tag = (lambda x: f", normalized by {ATGC(x)}" if x else '')(options['normalize'])
+    norm_tag = (lambda x: f", normalized by {x}" if x else '')(options['normalize'])
     fig.suptitle(f"(fbqc) Average {change_qc_label(Y)} across each lane"+norm_tag)
 
     return fig, ax
@@ -777,19 +776,16 @@ def fbqc_by_tile(df,Y,chosen_tiles=['03A','09B','17A','20B'],**kwargs):
 
             for ch in options['channels']:
 
-                mask1 = (f"tile_no == '{picktiles}' & channel == '{ch}'")
-                df1 = df.query(mask1)
+                mask1 = df.tile_no.str.contains(picktiles)
+                mask2 = df.channel == ch
+                mask3 = df.channel == options['normalize']
 
-                if options['normalize']:
+                df1 = df.loc[mask1*mask2]
+                norm = df.loc[mask1*mask3]
 
-                    maskn = (f"tile_no == '{picktiles}' & channel == '{options['normalize']}'")
-                    ynorm = (lambda x: df.query(maskn)[Y] if x['normalize'] else 1)(options)
-                
-                else: 
-                    ynorm = 1
+                ynorm = (lambda x: norm[Y].to_numpy() if x['normalize'] else 1)(options)
 
-
-                axis.plot(df1.cycle_no, df1[Y]/ynorm.to_numpy(), linestyle='-', color=c[ch], label=ch)
+                axis.plot(df1.cycle_no, df1[Y]/ynorm, linestyle='-', color=c[ch], label=ch)
                 axis.set_xticks(np.linspace(df1.cycle_no.min(),df1.cycle_no.max(),num=5).astype(np.int32))
                 
                 axis.set_title(picktiles,pad=8)
